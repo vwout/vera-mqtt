@@ -25,4 +25,22 @@
         end
     </functions>
     <startup>startup</startup>
+	<actionList>
+		<action>
+			<serviceId>urn:upnp-sensor-mqtt-se:serviceId:SensorMqtt1</serviceId>
+			<name>Subscribe</name>
+			<job>
+				p.subscribeMqttTopics(lul_settings.topics)
+				return 4, nil
+			</job>
+		</action>
+		<action>
+			<serviceId>urn:upnp-sensor-mqtt-se:serviceId:SensorMqtt1</serviceId>
+			<name>Unsubscribe</name>
+			<job>
+				p.unsubscribeMqttTopics(lul_settings.topics)
+				return 4, nil
+			</job>
+		</action>
+	</actionList>
 </implementation>
