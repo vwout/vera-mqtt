@@ -20,7 +20,6 @@ local mqttWatches = "{}"
 local mqttAlias = "{}"
 local mqttLastMessage = ""
 local mqttClientSerial = luup.pk_accesspoint
-local mqttSubscribedTopics = "{}"
 local mqttLastReceivedTopic = nil
 local mqttLastReceivedPayload = nil
 -- Time in seconds between calls to MQTT:client:handler()
@@ -63,6 +62,9 @@ local function log_debug(text)  -- Reported with verbose logging enabled [35]
 	log(text, 35)
 end
 
+-- ------------------------------------------------------------------
+-- Tools
+-- ------------------------------------------------------------------
 local function getVariableOrInit(lul_device, serviceId, variableName, defaultValue)
 	local value = luup.variable_get(serviceId, variableName, lul_device)
 	if (value == nil) then
@@ -70,6 +72,88 @@ local function getVariableOrInit(lul_device, serviceId, variableName, defaultVal
 		value = defaultValue
 	end
 	return value
+end
+
+-- Splits a string based on the given separator. Returns a table.
+local function string_split( s, sep, convert, convertParam )
+	if ( type( convert ) ~= "function" ) then
+		convert = nil
+	end
+	if ( type( s ) ~= "string" ) then
+		return {}
+	end
+	sep = sep or " "
+	local t = {}
+	for token in s:gmatch( "[^" .. sep .. "]+" ) do
+		if ( convert ~= nil ) then
+			token = convert( token, convertParam )
+		end
+		table.insert( t, token )
+	end
+	return t
+end
+
+-- Removes empty entries in a table
+local function table_shrink( t )
+	if ( type( t ) ~= "table" ) then
+		return nil
+	end
+	for i = #t, 1, -1 do
+		if ( ( t[i] == nil ) or ( t[i] == "" ) ) then
+			table.remove( t, i )
+		end
+	end
+	return t
+end
+
+-- Checks if a table contains the given item.
+-- Returns true and the key / index of the item if found, or false if not found.
+function table_contains( t, item )
+	for k, v in pairs( t ) do
+		if ( v == item ) then
+			return true, k
+		end
+	end
+	return false
+end
+
+-- Appends the contents of the second table at the end of the first table
+function table_append( t1, t2, noDuplicate )
+	if ( ( t1 == nil ) or ( t2 == nil ) ) then
+		return
+	end
+	local table_insert = table.insert
+	if ( type( t2 ) == "table" ) then
+		table.foreach(
+			t2,
+			function ( _, v )
+				if ( noDuplicate and table_contains( t1, v ) ) then
+					return
+				end
+				table_insert( t1, v )
+			end
+		)
+	else
+		if ( noDuplicate and table_contains( t1, t2 ) ) then
+			return
+		end
+		table_insert( t1, t2 )
+	end
+	return t1
+end
+
+-- Extracts a subtable from the given table
+function table_extract( t, start, length )
+	if ( start < 0 ) then
+		start = #t + start + 1
+	end
+	length = length or ( #t - start + 1 )
+
+	local t1 = {}
+	for i = start, start + length - 1 do
+		t1[#t1 + 1] = t[i]
+	end
+	return t1
 end
 
 -- ------------------------------------------------------------------
@@ -105,12 +189,45 @@ end
 -- ------------------------------------------------------------------
 -- Receive an MQTT message (subscribed topic)
 -- ------------------------------------------------------------------
-local function mqttCallback(topic, payload)
-	log_debug("Receive topic: " .. tostring(topic) .. " message:" .. tostring(payload))
-	if ((type(topic) == "string") and (type(payload) == "string")) then
-		luup.variable_set(SERVICE_ID, "mqttLastReceivedTopic", topic, DEVICE_ID)
-		luup.variable_set(SERVICE_ID, "mqttLastReceivedPayload", payload, DEVICE_ID)
+local function mqttCallback( topic, payload )
+	luup.variable_set( SERVICE_ID, "mqttLastReceivedTopic", topic or "", DEVICE_ID )
+	luup.variable_set( SERVICE_ID, "mqttLastReceivedPayload", payload or "", DEVICE_ID )
+
+	local msg = "Receive topic: " .. tostring( topic ) .. " payload:" .. tostring( payload )
+
+	-- Try to decode JSON
+	local decodeSuccess, payloadFromJson = pcall( json.decode, payload or "" )
+	if ( decodeSuccess and ( type( payloadFromJson ) == "table" ) ) then
+		log_debug( msg .. " (JSON)" )
+	else
+		log_debug( msg )
 	end
+
+	for _, subscription in ipairs( Subscriptions.get( topic ) ) do
+		local value
+		if subscription.luaFormula then
+			if payloadFromJson then
+				subscription.jail.payload = payloadFromJson
+			else
+				subscription.jail.payload = payload
+			end
+			local result, computedValue = pcall( subscription.luaFormula )
+			if not result then
+				log_error( "Formula error: " .. tostring( computedValue ) )
+			else
+				value = computedValue
+			end
+		else
+			value = payload
+		end
+		if ( subscription.service and subscription.variable ) then
+			log_debug( " Subscription for device #" .. tostring(subscription.deviceId) .. ", service=" .. subscription.service .. ", variable=" .. subscription.variable .. ", formula=(" .. tostring(subscription.formula) .. ") => " .. tostring( value ) )
+			if ( value ~= nil ) then
+				luup.variable_set( subscription.service, subscription.variable, value, subscription.deviceId )
+			end
+		end
+	end
+
 end
 
 -- ------------------------------------------------------------------
@@ -162,7 +279,7 @@ end
 -- ------------------------------------------------------------------
 local function publishMessage(topic, payload)
 
-	log_debug("Publish topic: " ..topic.. " message:" .. payload)
+	log_debug("Publish topic: " .. topic .. " message:" .. payload)
 
 	-- If we aren't connected for some reason, then connect first
 	if not connectedToBroker() then
@@ -269,7 +386,7 @@ end
 -- ------------------------------------------------------------------
 -- Subscribe to MQTT topics
 -- ------------------------------------------------------------------
-function subscribeMqttTopics(jsonTopics)
+function subscribeMqttTopics( topics )
 
 	log_debug("************************************************ MQTT Subscriptions *******************************************")
 
@@ -278,20 +395,10 @@ function subscribeMqttTopics(jsonTopics)
 		connectToMqtt()
 	end
 
-	local decodeSuccess, topics = pcall(json.decode, jsonTopics or "")
-	if (decodeSuccess and (type(topics) == "table")) then
-		local newTopics = {}
-		for _, topic in ipairs(topics) do
-			if ((type(topic) == "string") and (topic ~= "")) then
-				log_debug("Subscribe to topic: " .. tostring(topic))
-				table.insert(newTopics, topic)
-			end
-		end
-		if (#newTopics > 0) then
-			mqttClient:subscribe(newTopics)
-		end
-	else
-		log_error("Internal error - failed to decode : " .. tostring(topics))
+    topics = table_shrink( topics ) or {}
+	if ( #topics > 0 ) then
+		log_debug( "Subscribe to topics: " .. json.encode( topics ) )
+		mqttClient:subscribe( topics )
 	end
 
 end
@@ -299,7 +406,7 @@ end
 -- ------------------------------------------------------------------
 -- Unsubscribe to MQTT topics
 -- ------------------------------------------------------------------
-function unsubscribeMqttTopics(jsonTopics)
+function unsubscribeMqttTopics( topics )
 
 	log_debug("************************************************ MQTT Unsubscriptions *****************************************")
 
@@ -308,23 +415,117 @@ function unsubscribeMqttTopics(jsonTopics)
 		connectToMqtt()
 	end
 
-	local decodeSuccess, topics = pcall(json.decode, jsonTopics or "")
-	if (decodeSuccess and (type(topics) == "table")) then
-		local oldTopics = {}
-		for _, topic in ipairs(topics) do
-			if ((type(topic) == "string") and (topic ~= "")) then
-				log_debug("Unsubscribe to topic: " .. tostring(topic))
-				table.insert(oldTopics, topic)
-			end
-		end
-		if (#oldTopics > 0) then
-			mqttClient:unsubscribe(oldTopics)
-		end
-	else
-		log_error("Internal error - failed to decode : " .. tostring(topics))
+	topics = table_shrink( topics ) or {}
+	if ( #topics > 0 ) then
+		log_debug( "Unsubscribe to topics: " .. json.encode( topics ) )
+		mqttClient:unsubscribe( topics )
 	end
 
 end
+
+-- ------------------------------------------------------------------
+-- Subscriptions
+-- ------------------------------------------------------------------
+
+local mqttSubscriptions
+local mqttIndexTopics
+
+Subscriptions = {
+
+	addToIndex_ = function( subscription, subIndex, subTopics )
+		if ( #subTopics == 0 ) then
+			if subIndex["*"] then
+				table.insert( subIndex["*"], subscription )
+			end
+			return
+		end
+		local subTopic = table.remove( subTopics, 1 )
+		if ( subTopic == "" ) then
+			return
+		end
+		if ( subIndex[ subTopic ] == nil ) then
+			subIndex[ subTopic ] = { ["*"] = {} }
+		end
+		if ( ( subTopic == "#" ) or ( #subTopics == 0 ) ) then
+			table.insert( subIndex[ subTopic ]["*"], subscription )
+		else
+			Subscriptions.addToIndex_( subscription, subIndex[ subTopic ], subTopics )
+		end
+	end,
+
+	retrieve = function()
+
+		log_debug("************************************************ Subscriptions Settings ***************************************")
+
+		mqttSubscriptions = {}
+		mqttIndexTopics = {}
+		local topics = {}
+		local strError
+		for deviceId, device in pairs( luup.devices ) do
+			if ( device.device_num_parent == DEVICE_ID ) then
+				local subscription = {
+					deviceId = deviceId,
+					topic    = getVariableOrInit( deviceId, SERVICE_ID, "mqttTopic", "" ),
+					target   = getVariableOrInit( deviceId, SERVICE_ID, "mqttTarget", "" )
+				}
+				-- service,variable=formula
+				-- eg for topic /test/, payload {"value":"alarm"}
+				-- urn:upnp-org:serviceId:SwitchPower1,Status=payload.value and ((payload.value=="alarm") and "1" or "0")
+				subscription.service, subscription.variable, subscription.formula = subscription.target:match( "^(.*),([^=]*)=?(.*)$" )
+				if ( subscription.service == "" ) then
+					subscription.service = nil
+				end
+				if ( subscription.variable == "" ) then
+					subscription.variable = nil
+				end
+				if ( subscription.formula == "" ) then
+					subscription.formula = nil
+				end
+				log_debug( "Device #" .. tostring( subscription.deviceId ) .. ", topic=" .. subscription.topic .. ", service=" .. tostring(subscription.service) .. ", variable=" .. tostring(subscription.variable) .. ", formula=(" .. tostring(subscription.formula) .. ")" )
+				if ( subscription.formula ) then
+					-- Try to prepare the LUA code of the formula
+					subscription.luaFormula, strError = loadstring( "return " .. subscription.formula )
+					if ( subscription.luaFormula == nil ) then
+						log_error( "Error in target LUA formula: " .. tostring( strError ) )
+					else
+						-- Put the LUA code in a sandbox
+						subscription.jail = { tonumber = tonumber, tostring = tostring }
+						setfenv( subscription.luaFormula, subscription.jail )
+					end
+				end
+				table.insert( mqttSubscriptions, subscription )
+				if ( subscription.topic ~= "" ) then
+					table.insert( topics, subscription.topic )
+				end
+				-- Add to index
+				Subscriptions.addToIndex_( subscription, mqttIndexTopics, string_split( subscription.topic or "", "/" ) )
+			end
+		end
+		subscribeMqttTopics( topics )
+	end,
+
+	getFromIndex_ = function( subIndex, subTopics )
+		if ( #subTopics == 0 ) then
+			return subIndex["*"] or {}
+		end
+		local subTopic = table.remove( subTopics, 1 )
+		local subscriptions = {}
+		if subIndex["#"] then
+			table_append( subscriptions, subIndex["#"]["*"] )
+		end
+		if subIndex["+"] then
+			table_append( subscriptions, Subscriptions.getFromIndex_( subIndex["+"], subTopics ) )
+		end
+		if subIndex[ subTopic ] then
+			table_append( subscriptions, Subscriptions.getFromIndex_( subIndex[ subTopic ], subTopics ) )
+		end
+		return subscriptions
+	end,
+
+	get = function( topic )
+		return Subscriptions.getFromIndex_( mqttIndexTopics, string_split( topic or "", "/" ) )
+	end
+}
 
 -- ------------------------------------------------------------------
 -- SensorMqtt Plugin Startup method (akin to main)
@@ -353,7 +554,6 @@ function startup(lul_device)
 	mqttWatches             = getVariableOrInit(DEVICE_ID, SERVICE_ID, "mqttWatches", "{}")
 	mqttAlias               = getVariableOrInit(DEVICE_ID, SERVICE_ID, "mqttAlias", "{}")
 	mqttLastMessage         = getVariableOrInit(DEVICE_ID, SERVICE_ID, "mqttLastMessage", "") -- mqttLastSentMessage
-	mqttSubscribedTopics    = getVariableOrInit(DEVICE_ID, SERVICE_ID, "mqttSubscribedTopics", "{}")
 	mqttLastReceivedTopic   = getVariableOrInit(DEVICE_ID, SERVICE_ID, "mqttLastReceivedTopic", "")
 	mqttLastReceivedPayload = getVariableOrInit(DEVICE_ID, SERVICE_ID, "mqttLastReceivedPayload", "")
 
@@ -379,7 +579,7 @@ function startup(lul_device)
 
 	if connectedToBroker() then
 		registerWatches()
-		subscribeMqttTopics(mqttSubscribedTopics)
+		Subscriptions.retrieve()
 		processMqttEvents() -- kick off the mqtt event handling
 	end
 
