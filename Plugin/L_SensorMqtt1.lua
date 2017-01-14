@@ -277,7 +277,7 @@ end
 -- ------------------------------------------------------------------
 -- Publish an MQTT message
 -- ------------------------------------------------------------------
-local function publishMessage(topic, payload)
+function publishMessage(topic, payload)
 
 	log_debug("Publish topic: " .. topic .. " message:" .. payload)
 

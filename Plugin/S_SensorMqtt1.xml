@@ -43,5 +43,20 @@
 				</argument>
 			</argumentList>
 		</action>
+		<action>
+			<name>Publish</name>
+			<argumentList>
+				<argument>
+					<name>topic</name>
+					<direction>in</direction>
+					<relatedStateVariable>A_ARG_TYPE_String</relatedStateVariable>
+				</argument>
+				<argument>
+					<name>payload</name>
+					<direction>in</direction>
+					<relatedStateVariable>A_ARG_TYPE_String</relatedStateVariable>
+				</argument>
+			</argumentList>
+		</action>
 	</actionList>
 </scpd>

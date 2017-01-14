@@ -42,5 +42,13 @@
 				return 4, nil
 			</job>
 		</action>
+		<action>
+			<serviceId>urn:upnp-sensor-mqtt-se:serviceId:SensorMqtt1</serviceId>
+			<name>Publish</name>
+			<job>
+				p.publishMessage(lul_settings.topic, lul_settings.payload)
+				return 4, nil
+			</job>
+		</action>
 	</actionList>
 </implementation>
