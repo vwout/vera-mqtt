@@ -262,7 +262,7 @@ local function connectToMqtt()
 		-- Connect to broker, if possible
 		local result = mqttClient:connect(clientId, "Will_Topic/", 2, 1, "testament_msg")
 		if ( result == nil ) then
-			log_info("Successfully connected to broker: " .. mqttServerIp .. " on port " .. mqttServerPort)
+			log_info("Successfully connected to broker: " .. tostring(mqttServerIp) .. " on port " .. tostring(mqttServerPort))
 		else
 			log_warn("Failed to connect, reason: " .. result)
 		end
@@ -540,6 +540,12 @@ function startup(lul_device)
 
 	package.loaded.dkjson = nil
 	json = require("dkjson")
+
+	if ( type(MQTT) ~= "table" ) then
+		log_error("MQTT library is not loaded")
+		luup.set_failure(1, DEVICE_ID)
+		return false, "MQTT library is not loaded"
+	end
 
 	-- "Generic I/O" device http://wiki.micasaverde.com/index.php/Luup_Device_Categories
 	luup.attr_set("category_num", 3, DEVICE_ID)
