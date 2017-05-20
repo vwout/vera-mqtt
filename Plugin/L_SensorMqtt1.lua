@@ -260,7 +260,9 @@ local function connectToMqtt()
 		end
 
 		-- Connect to broker, if possible
-		local result = mqttClient:connect(clientId, "Will_Topic/", 2, 1, "testament_msg")
+		-- local result = mqttClient:connect(clientId, "Will_Topic/", 2, 1, "testament_msg")
+		-- local result = mqttClient:connect(clientId, "Will_Topic/", 2, 1, "") -- use this format once to delete the persisted lwt from the broker
+		local result = mqttClient:connect(clientId)
 		if ( result == nil ) then
 			log_info("Successfully connected to broker: " .. tostring(mqttServerIp) .. " on port " .. tostring(mqttServerPort))
 		else
@@ -353,7 +355,7 @@ function watchSensorVariable(lul_device, lul_service, lul_variable, lul_value_ol
 		topic = string.gsub(topic, "%(" .. i .. "%)", v)
 	end
 
-	log_info("Sending [" .. variableUpdate.DeviceName .. "] " .. lul_variable .. " changed to " .. tostring(lul_value_new) .. " from " .. tostring(lul_value_old) .. " on topic " .. topic)
+	log_info("Sending [" .. variableUpdate.DeviceName .. "] " .. lul_variable .. " changed from " .. tostring(lul_value_old) .. " to " .. tostring(lul_value_new) .. " on topic " .. topic)
 	publishMessage(topic, payload)
 
 	local lastMessage = {}
