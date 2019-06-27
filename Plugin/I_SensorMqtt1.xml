@@ -50,5 +50,20 @@
 				return 4, nil
 			</job>
 		</action>
+		<action>
+			<serviceId>urn:upnp-org:serviceId:SwitchPower1</serviceId>
+			<name>SetTarget</name>
+			<job>
+        topic = luup.variable_get("urn:upnp-sensor-mqtt-se:serviceId:SensorMqtt1", "mqttTopic", lul_device)
+        -- get the last (second) topic
+        -- in case multiple (comma) separated tokens are specified, 
+        -- the first one is subscribe (receive status) and the second one is publish (send command)
+        for t in topic:gmatch("[^,]+") do
+          topic = t
+        end
+				p.publishMessage(topic, lul_settings.newTargetValue)
+				return 4, nil
+			</job>
+		</action>
 	</actionList>
 </implementation>

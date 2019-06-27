@@ -8,6 +8,7 @@
         <deviceType>urn:schemas-sensor-mqtt-se:device:SensorMqtt:1</deviceType>
         <friendlyName>MQTT Sender</friendlyName>
         <staticJson>D_SensorMqtt1.json</staticJson>
+        <handleChildren>1</handleChildren>
         <serviceList>
             <service>
                 <serviceType>urn:schemas-sensor-mqtt-se:service:SensorMqtt:1</serviceType>

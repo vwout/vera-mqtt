@@ -470,6 +470,10 @@ Subscriptions = {
 					topic    = getVariableOrInit( deviceId, SERVICE_ID, "mqttTopic", "" ),
 					target   = getVariableOrInit( deviceId, SERVICE_ID, "mqttTarget", "" )
 				}
+        -- get the first topic
+        -- in case multiple (comma) separated tokens are specified, 
+        -- the first one is subscribe (receive status) and the second one is publish (send command)
+        subscription.topic = subscription.topic:gmatch("[^,]+")()
 				-- service,variable=formula
 				-- eg for topic /test/, payload {"value":"alarm"}
 				-- urn:upnp-org:serviceId:SwitchPower1,Status=payload.value and ((payload.value=="alarm") and "1" or "0")
