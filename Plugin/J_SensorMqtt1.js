@@ -56,7 +56,10 @@ function MQTT_updateServicesTable(device) {
         MQTT.userData = jsonp.ud;
     }
 
-    MQTT.watches = JSON.parse(get_device_state(device, MQTT.SID, "mqttWatches", 1));
+    var watches = get_device_state(device, MQTT.SID, "mqttWatches", 1);
+    if (watches) {
+      MQTT.watches = JSON.parse(watches);
+    }
 
     var devices = MQTT.userData.devices;
 
@@ -249,7 +252,10 @@ function MQTT_updateDeviceAliasTable(device) {
         MQTT.userData = jsonp.ud;
     }
 
-    MQTT.alias = JSON.parse(get_device_state(device, MQTT.SID, "mqttAlias", 1));
+    var alias = get_device_state(device, MQTT.SID, "mqttAlias", 1);
+    if (alias) {
+      MQTT.alias = JSON.parse(alias);
+    }
 
     var devices = MQTT.userData.devices;
 
